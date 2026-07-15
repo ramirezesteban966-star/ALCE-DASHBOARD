@@ -747,7 +747,7 @@ tr:hover td{background:var(--blue-light)}
         <button class="vt-vista-tab active" data-vista="resumen"   onclick="vtCambiarVista('resumen',this)">📊 Resumen</button>
         <button class="vt-vista-tab" data-vista="ciclos"    onclick="vtCambiarVista('ciclos',this)">🔄 Por ciclo de contrato</button>
         <button class="vt-vista-tab" data-vista="detalle"   onclick="vtCambiarVista('detalle',this)">📋 Detalle completo</button>
-        <button class="vt-vista-tab" data-vista="gmvvideo"   onclick="vtCambiarVista('gmvvideo',this)">📈 GMV por video</button>
+        <button class="vt-vista-tab" data-vista="gmvvideo"   onclick="vtCambiarVista('gmvvideo',this)">📈 Ingreso por video</button>
         <button class="vt-vista-tab" data-vista="tendencia" onclick="vtCambiarVista('tendencia',this)">📅 Tendencia</button>
       </div>
 
@@ -800,7 +800,7 @@ tr:hover td{background:var(--blue-light)}
           </select>
           <span class="strip-lbl" style="margin-left:8px">Ordenar:</span>
           <select id="vt-gmvv-orden" onchange="vtRenderGMVVideo(vtFiltrar())" style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)">
-            <option value="ratio_desc">GMV/video ↓</option>
+            <option value="ratio_desc">Ingreso/video ↓</option>
             <option value="gmv_desc">GMV total ↓</option>
             <option value="videos_desc">Videos publicados ↓</option>
             <option value="nombre_az">Nombre A→Z</option>
@@ -2663,9 +2663,9 @@ function vtRenderGMVVideo(datos){
       key=_vtNormCel(String(vg(v,'Celula_Scalify','celula_scalify','Celula')||'').trim())||'Sin célula';
       label=key;
     }
-    if(!map.has(key)) map.set(key,{key,label,brand,gmv:0,units:0});
+    if(!map.has(key)) map.set(key,{key,label,brand,gmv:0,units:0,comm:0});
     const r=map.get(key);
-    r.gmv+=vtGMV(v); r.units+=vtUnits(v);
+    r.gmv+=vtGMV(v); r.units+=vtUnits(v); r.comm+=vtComm(v);
   });
 
   // Helper: filtrar contratos respetando célula y marca activas
@@ -2699,7 +2699,7 @@ function vtRenderGMVVideo(datos){
       if(sum>0) videos=sum;
     }
     const retainer=getRetainer(row.key);
-    const ingresoTotal=row.gmv+retainer;
+    const ingresoTotal=row.comm+retainer;
     const ratio=videos>0?ingresoTotal/videos:null;
     const ratioGMV=videos>0?row.gmv/videos:null;
     return {...row,videos:videos??null,retainer,ingresoTotal,ratio,ratioGMV};
@@ -2728,10 +2728,12 @@ function vtRenderGMVVideo(datos){
         <th>${colHdr}</th>
         ${grupo==='sku'?'<th style="color:var(--text2)">Marca</th>':''}
         <th style="text-align:right">GMV</th>
-        ${inclRetainer?'<th style="text-align:right;color:var(--teal)">Retainer</th><th style="text-align:right;color:var(--teal)">Ingreso total</th>':''}
+        <th style="text-align:right">Comisión</th>
+        ${inclRetainer?'<th style="text-align:right;color:var(--teal)">Retainer</th>':''}
+        <th style="text-align:right;color:var(--teal)">Ingreso real</th>
         <th style="text-align:right">Uds.</th>
         <th style="text-align:right">Videos pub.${hdrPeriodo}</th>
-        <th style="text-align:right">${inclRetainer?'Ingreso':'GMV'}/video</th>
+        <th style="text-align:right">Ingreso/video</th>
         <th style="min-width:100px">Rendimiento</th>
       </tr></thead>
       <tbody>
@@ -2743,8 +2745,10 @@ function vtRenderGMVVideo(datos){
           return `<tr>
             <td style="font-weight:500">${esc(r.label)}</td>
             ${grupo==='sku'?`<td style="color:var(--text2);font-size:12px">${esc(r.brand)}</td>`:''}
-            <td style="text-align:right;font-weight:600">${fmtUSD(r.gmv)}</td>
-            ${inclRetainer?`<td style="text-align:right;color:var(--teal)">${r.retainer>0?fmtUSD(r.retainer):'<span style="color:var(--border2)">—</span>'}</td><td style="text-align:right;font-weight:600;color:var(--teal)">${r.retainer>0?fmtUSD(r.ingresoTotal):fmtUSD(r.gmv)}</td>`:''}
+            <td style="text-align:right;color:var(--text2)">${fmtUSD(r.gmv)}</td>
+            <td style="text-align:right;font-weight:600">${fmtUSD(r.comm)}</td>
+            ${inclRetainer?`<td style="text-align:right;color:var(--teal)">${r.retainer>0?fmtUSD(r.retainer):'<span style="color:var(--border2)">—</span>'}</td>`:''}
+            <td style="text-align:right;font-weight:600;color:var(--teal)">${fmtUSD(r.ingresoTotal)}</td>
             <td style="text-align:right;color:var(--text2)">${r.units.toLocaleString()}</td>
             <td style="text-align:right">${vCell}</td>
             <td style="text-align:right">${rCell}</td>
@@ -2753,6 +2757,7 @@ function vtRenderGMVVideo(datos){
         }).join('')}
       </tbody>
     </table>
+    <div style="font-size:11px;color:var(--text2);margin-top:8px">Ingreso real = comisiones generadas${inclRetainer?' + retainer (prorrateado)':''}. GMV se muestra como referencia de ventas brutas.</div>
     ${!hayClickUp?'<div class="alert alert-info" style="margin-top:10px">⚠️ Cargá los datos de ClickUp (tab Operativo) para ver la cantidad de videos publicados.</div>':''}
     ${inclRetainer&&!hayContratos?'<div class="alert alert-info" style="margin-top:6px">⚠️ Cargá los contratos (tab Gerencia Comercial) para ver el retainer.</div>':''}
   </div>`;
@@ -2898,7 +2903,7 @@ function vtRenderTendencia(datos){
   const commVals=buckets.map(b=>mapComm.get(b)||0);
   const udsVals=buckets.map(b=>mapUds.get(b)||0);
   const vidVals=buckets.map(b=>mapVids.get(b)||0);
-  const ingresoVals=gmvVals.map((g,i)=>g+(retVals[i]||0));
+  const ingresoVals=commVals.map((c,i)=>c+(retVals[i]||0));
   const ratioVals=buckets.map((b,i)=>vidVals[i]>0?ingresoVals[i]/vidVals[i]:0);
 
   // Stats generales
@@ -3042,10 +3047,10 @@ function vtRenderTendencia(datos){
   `;
 
   if(hayClickUp&&ratioVals.some(v=>v>0)){
-    const seriesRatio=[{label:inclRetainer?'Ingreso/video':'GMV/video',vals:ratioVals,color:'var(--amber)',fmt:fUSD}];
-    html+=mkChart('ratio',seriesRatio,inclRetainer?'Ingreso promedio por video (GMV + Retainer)':'GMV promedio por video publicado','Hover para ver valor por período');
+    const seriesRatio=[{label:'Ingreso/video',vals:ratioVals,color:'var(--amber)',fmt:fUSD}];
+    html+=mkChart('ratio',seriesRatio,inclRetainer?'Ingreso real promedio por video (Comisión + Retainer)':'Ingreso real promedio por video (Comisión)','Hover para ver valor por período');
   } else if(!hayClickUp){
-    html+=`<div class="alert alert-info">Cargá los datos de ClickUp (tab Operativo) para ver el gráfico de GMV/video en el tiempo.</div>`;
+    html+=`<div class="alert alert-info">Cargá los datos de ClickUp (tab Operativo) para ver el gráfico de ingreso/video en el tiempo.</div>`;
   }
 
   html+=`</div>`;
