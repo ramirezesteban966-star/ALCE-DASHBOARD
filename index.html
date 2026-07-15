@@ -1159,6 +1159,13 @@ const FML={FECHA_ACTUALIZACION:'Última actualización',FECHA_PUBLICADO:'Publica
 const CMAP={};
 const getDimColor=(dim,val)=>{const k=dim+':'+val;if(!CMAP[k]){const n=Object.keys(CMAP).filter(x=>x.startsWith(dim+':')).length;CMAP[k]=PAL[n%PAL.length];}return CMAP[k];};
 
+// ═══════════════════════════════════════════════════════
+// IDENTIFICADOR DE EMPRESA — cambiar al clonar este dashboard
+// para otra empresa (evita que compartan localStorage si quedan
+// alojados en el mismo dominio de GitHub Pages)
+// ═══════════════════════════════════════════════════════
+const EMPRESA_ID='scalify';
+
 // Estado global
 let allData=[],filtered=[],pg=1,sortCol='_fd',sortAsc=false;
 let period='todo',fechaMode='FECHA_ACTUALIZACION',csvUrl='';
@@ -1186,16 +1193,16 @@ function saveUrls(){
     if(u1) document.getElementById('csvurl').value=u1;
     if(u2) document.getElementById('csvurl-contratos').value=u2;
     if(u3) document.getElementById('csvurl-ventas').value=u3;
-    localStorage.setItem('scalify_csv_clickup', u1);
-    localStorage.setItem('scalify_csv_contratos', u2);
-    localStorage.setItem('scalify_csv_ventas', u3);
+    localStorage.setItem(EMPRESA_ID+'_csv_clickup', u1);
+    localStorage.setItem(EMPRESA_ID+'_csv_contratos', u2);
+    localStorage.setItem(EMPRESA_ID+'_csv_ventas', u3);
   }catch(e){}
 }
 function loadUrls(){
   try{
-    const cu=fixCsvUrl(localStorage.getItem('scalify_csv_clickup')||'');
-    const cc=fixCsvUrl(localStorage.getItem('scalify_csv_contratos')||'');
-    const cv=fixCsvUrl(localStorage.getItem('scalify_csv_ventas')||'');
+    const cu=fixCsvUrl(localStorage.getItem(EMPRESA_ID+'_csv_clickup')||'');
+    const cc=fixCsvUrl(localStorage.getItem(EMPRESA_ID+'_csv_contratos')||'');
+    const cv=fixCsvUrl(localStorage.getItem(EMPRESA_ID+'_csv_ventas')||'');
     if(cu) document.getElementById('csvurl').value=cu;
     if(cc) document.getElementById('csvurl-contratos').value=cc;
     if(cv) document.getElementById('csvurl-ventas').value=cv;
@@ -2572,6 +2579,40 @@ function vtClickBarLabel(panelId, valor){
 function _vtNormCel(c){if(!c)return'';const m=String(c).match(/#?(\d+)$/);return m?'Celula '+parseInt(m[1]):String(c).trim();}
 function _normStr(s){return String(s||'').trim().toLowerCase().replace(/[\s\-_]+/g,' ');}
 
+// ── Videos manuales (fallback para ventas sin datos en ClickUp) ──
+// Permite registrar a mano la cantidad de videos publicados para productos
+// vendidos antes de empezar a usar ClickUp, o cuando el cruce automático no encuentra nada.
+function _vtVideosManualAll(){
+  try{ return JSON.parse(localStorage.getItem(EMPRESA_ID+'_videos_manual')||'{}'); }
+  catch(e){ return {}; }
+}
+function vtVideosManualGet(grupo,key){
+  const all=_vtVideosManualAll();
+  const v=all[grupo]&&all[grupo][_normStr(key)];
+  return v?parseInt(v)||null:null;
+}
+function vtVideosManualSet(grupo,key,valor){
+  const all=_vtVideosManualAll();
+  if(!all[grupo]) all[grupo]={};
+  const n=parseInt(valor);
+  if(!n||n<=0) delete all[grupo][_normStr(key)];
+  else all[grupo][_normStr(key)]=n;
+  localStorage.setItem(EMPRESA_ID+'_videos_manual', JSON.stringify(all));
+}
+function vtVideosManualEditar(grupo,key,label,actual){
+  const entrada=prompt('Videos publicados para "'+label+'" (uso manual — cuando ClickUp no tiene registro para este producto):', actual||'');
+  if(entrada===null) return; // cancelado
+  vtVideosManualSet(grupo,key,entrada.trim());
+  vtRenderGMVVideo(vtFiltrar());
+}
+// Wrapper para el botón ✏️ de la tabla GMV/video (evita escapar comillas en el HTML generado)
+function vtVideosManualEditarIdx(idx){
+  const ctx=window._vtGmvvRows;
+  if(!ctx||!ctx.rows[idx]) return;
+  const r=ctx.rows[idx];
+  vtVideosManualEditar(ctx.grupo,r.key,r.label,r.videosManual?r.videos:'');
+}
+
 // ── Conteo de videos publicados desde allData ──
 // Usa la misma lógica que cruzarContratosConClickUp + normalización.
 // MUY IMPORTANTE: aplica los mismos filtros activos de ventas (célula, marca, producto)
@@ -2698,11 +2739,17 @@ function vtRenderGMVVideo(datos){
         .reduce((s,c)=>s+(parseInt(c.POSTEADOS_CICLO)||0),0);
       if(sum>0) videos=sum;
     }
+    // Fallback final: conteo manual (ventas previas a usar ClickUp, o sin cruce posible)
+    let videosManual=false;
+    if(!videos){
+      const manual=vtVideosManualGet(grupo,row.key);
+      if(manual){ videos=manual; videosManual=true; }
+    }
     const retainer=getRetainer(row.key);
     const ingresoTotal=row.comm+retainer;
     const ratio=videos>0?ingresoTotal/videos:null;
     const ratioGMV=videos>0?row.gmv/videos:null;
-    return {...row,videos:videos??null,retainer,ingresoTotal,ratio,ratioGMV};
+    return {...row,videos:videos??null,videosManual,retainer,ingresoTotal,ratio,ratioGMV};
   });
 
   rows.sort((a,b)=>{
@@ -2737,10 +2784,11 @@ function vtRenderGMVVideo(datos){
         <th style="min-width:100px">Rendimiento</th>
       </tr></thead>
       <tbody>
-        ${rows.map(r=>{
+        ${rows.map((r,idx)=>{
           const barPct=(r.ratio&&maxRatio>0)?Math.round(r.ratio/maxRatio*100):0;
           const rc=r.ratio?r.ratio>=maxRatio*0.6?'var(--green)':r.ratio>=maxRatio*0.3?'var(--amber)':'var(--red)':'var(--text2)';
-          const vCell=r.videos!==null?r.videos:'<span style="color:var(--text2)">—</span>';
+          const editBtn=`<span title="${r.videos!==null?'Editar videos manuales':'Añadir videos manuales (venta sin registro en ClickUp)'}" onclick="vtVideosManualEditarIdx(${idx})" style="cursor:pointer;color:var(--blue);font-size:11px;margin-left:5px">✏️</span>`;
+          const vCell=(r.videos!==null?`${r.videos}${r.videosManual?' <span style="font-size:9px;color:var(--purple);font-weight:600" title="Cantidad ingresada manualmente">MANUAL</span>':''}`:'<span style="color:var(--text2)">—</span>')+editBtn;
           const rCell=r.ratio!==null?`<span style="font-weight:700;color:${rc}">${fmtUSD(r.ratio)}</span>`:'<span style="color:var(--text2)">—</span>';
           return `<tr>
             <td style="font-weight:500">${esc(r.label)}</td>
@@ -2750,17 +2798,18 @@ function vtRenderGMVVideo(datos){
             ${inclRetainer?`<td style="text-align:right;color:var(--teal)">${r.retainer>0?fmtUSD(r.retainer):'<span style="color:var(--border2)">—</span>'}</td>`:''}
             <td style="text-align:right;font-weight:600;color:var(--teal)">${fmtUSD(r.ingresoTotal)}</td>
             <td style="text-align:right;color:var(--text2)">${r.units.toLocaleString()}</td>
-            <td style="text-align:right">${vCell}</td>
+            <td style="text-align:right;white-space:nowrap">${vCell}</td>
             <td style="text-align:right">${rCell}</td>
             <td>${r.ratio!==null?`<div style="background:var(--border);border-radius:4px;height:7px;overflow:hidden"><div style="background:${rc};height:100%;width:${barPct}%;transition:width .3s"></div></div>`:'<span style="color:var(--text2);font-size:11px">Sin videos</span>'}</td>
           </tr>`;
         }).join('')}
       </tbody>
     </table>
-    <div style="font-size:11px;color:var(--text2);margin-top:8px">Ingreso real = comisiones generadas${inclRetainer?' + retainer (prorrateado)':''}. GMV se muestra como referencia de ventas brutas.</div>
+    <div style="font-size:11px;color:var(--text2);margin-top:8px">Ingreso real = comisiones generadas${inclRetainer?' + retainer (prorrateado)':''}. GMV se muestra como referencia de ventas brutas. Usá el ícono ✏️ para registrar videos de ventas anteriores a ClickUp.</div>
     ${!hayClickUp?'<div class="alert alert-info" style="margin-top:10px">⚠️ Cargá los datos de ClickUp (tab Operativo) para ver la cantidad de videos publicados.</div>':''}
     ${inclRetainer&&!hayContratos?'<div class="alert alert-info" style="margin-top:6px">⚠️ Cargá los contratos (tab Gerencia Comercial) para ver el retainer.</div>':''}
   </div>`;
+  window._vtGmvvRows={grupo,rows}; // para vtVideosManualEditarIdx
 }
 
 // ── VISTA TENDENCIA ──────────────────────────────────────────
